@@ -4,4 +4,3 @@ ls -l -a
 ps
 cat Makefile | wc -l -w
 ls foo
-
