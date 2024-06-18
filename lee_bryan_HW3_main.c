@@ -18,6 +18,10 @@
 #include <string.h>
 #include <sys/wait.h>
 
+#define BUFFER_SIZE 163
+#define READ_END 0
+#define WRITE_END 1
+
 int main(int argc, char* argv[]) {
 
     //Verify if a custom prefix prompt is set; otherwise, use "> "
@@ -37,14 +41,13 @@ int main(int argc, char* argv[]) {
     }
 
     int exitCondition = 0;
-    ssize_t lineSize; //ssize_t to allow for -1
 
     //Repeatedly prompts the user until exit command is inputted
     //During each iteration of the loop, input will be
     //received, parsed, and the command executed.
     while (exitCondition == 0) {
 
-        printf("\n%s", prompt);
+        printf("%s", prompt);
 
         //Read the command line the user inputted and check for failure
         if (fgets(buffer, bufferSize, stdin) == NULL) {
@@ -54,7 +57,6 @@ int main(int argc, char* argv[]) {
                 break;
             }
 
-            //Prompt the user again if there was a failure in reading the command line
             printf("Error reading input!\n");
             continue;
         }
@@ -71,7 +73,7 @@ int main(int argc, char* argv[]) {
             *lineBreak = '\0';
         }
 
-        char* cmds[82];
+        char* cmds[(BUFFER_SIZE / 2) + 1];
         int cmdsCount = 0;
         
         //Split and tokenize the pipeline's commands
@@ -98,13 +100,13 @@ int main(int argc, char* argv[]) {
             
             //Creates a pipe with pipe file descriptor and checks for errors
             if (pipe(pipefd) < 0) {
-                printf("Failed to create a pipe!\n");
+                perror("Failed to create a pipe!\n");
                 exit(EXIT_FAILURE);
             }
 
             //Note: The first index of the vector will be the command,
             //the rest will be arguments.
-            char* argArray[82];
+            char* argArray[(BUFFER_SIZE / 2) + 1];
             int argArrayIndex = 0;
 
             //Split and tokenize the individual parts of the commands
@@ -125,21 +127,25 @@ int main(int argc, char* argv[]) {
             //Handle different outcomes of the child process creation operation
             switch (pid) {
                 case -1: //Fork failed
-                    printf("fork failed, aborting!\n");
+                    perror("fork failed!\n");
                     exit(EXIT_FAILURE);
                 case 0: //In the child process that was successfully created
-                    //Close the read end of the pipe
+                    //Close the unused read end of the pipe
                     close(pipefd[0]);
 
-                    //Redirect the current child process to read from the previous command.
-                    //For example: command1 | command2 where the output of command1 needs to be
-                    //served as the input for command2.
-                    dup2(fd_in, 0);
-
+                    //Redirect the current child process to read from the previous command's output
+                    if (dup2(fd_in, 0) == -1) {
+                        perror("dup2 for stdin failed!\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    
                     //Redirect the last command output back to the write end of the pipe.
                     //This output will be displayed on the shell.
                     if (i < cmdsCount - 1) {
-                        dup2(pipefd[1], 1);
+                        if (dup2(pipefd[1], 1) == -1) {
+                            perror("dup2 for stdout failed!\n");
+                            exit(EXIT_FAILURE);
+                        }
                     }
 
                     execvp(argArray[0], argArray);
@@ -154,7 +160,7 @@ int main(int argc, char* argv[]) {
                     //Check if the child process exited normally
                     if (WIFEXITED(status)) {
                         printf("Child %d exited with status %d\n", pid, WEXITSTATUS(status));
-                        
+
                         //Close the write end of the pipe
                         close(pipefd[1]);
 
@@ -166,9 +172,11 @@ int main(int argc, char* argv[]) {
                     }
             }
         }
+        close(fd_in);
     }
 
     free(buffer);
+    buffer = NULL;
 
     return 0;
 }
