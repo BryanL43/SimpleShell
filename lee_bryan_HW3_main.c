@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
         prompt = argv[1];
     }
 
-    //Instantiate a buffer of 163 Bytes
+    //Instantiate a buffer of BUFFER_SIZE
     char* buffer = malloc(BUFFER_SIZE);
 
     //End the program if instantiation for buffer fails
@@ -41,16 +41,15 @@ int main(int argc, char* argv[]) {
 
     int exitCondition = 0;
 
-    //Repeatedly prompts the user until exit command is inputted
-    //During each iteration of the loop, input will be
-    //received, parsed, and the command executed.
+    //Repeatedly prompts the user until exit command is inputted.
+    //During each iteration, input will be received, parsed, and executed.
     while (exitCondition == 0) {
 
         printf("%s", prompt);
 
-        //Read the command line the user inputted and check for failure
+        //Read the user's input and stores in buffer
         if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
-            //Check if end-of-file (EOF) was reached and exit the prompt loop
+            //Check if end-of-file (EOF) was reached and exit the prompt
             if (feof(stdin)) {
                 printf("\n");
                 break;
@@ -66,7 +65,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        //Remove newline character from the buffer
+        //Remove line break character from the buffer
         char *lineBreak = strchr(buffer, '\n');
         if (lineBreak) {
             *lineBreak = '\0';
@@ -85,9 +84,10 @@ int main(int argc, char* argv[]) {
         char* saveptr2;
         int i = 0, j;
 
+        //Iterates through the tokenized user input, splitting by pipes and spaces,
+        //before storing the individual arguments.
         char* token = strtok_r(buffer, "|", &saveptr1);
         char* subtoken;
-
         while (token != NULL) {
             j = 0;
             subtoken = strtok_r(token, " ", &saveptr2);
@@ -96,28 +96,27 @@ int main(int argc, char* argv[]) {
                 j++;
                 subtoken = strtok_r(NULL, " ", &saveptr2);
             }
-            cmds[i][j] = NULL; //NULL terminate the argument array
+            cmds[i][j] = NULL;
             i++;
             token = strtok_r(NULL, "|", &saveptr1);
         }
         cmdsCount = i;
     
-        if (cmdsCount == 1) { //Handles normal commands without pipes
-            //Fork a child process and save its PID
+        if (cmdsCount == 1) { //Handle commands without pipes
+            //Create a child process and store its PID
             pid_t pid = fork();
 
-            //Handle different outcomes of the child process creation operation
+            //Handle the values returned by forking a child process
             switch (pid) {
                 case -1: //Fork failed
                     perror("fork failed!\n");
                     exit(EXIT_FAILURE);
-                case 0: //In the child process that was successfully created
+                case 0: //Child process executes the command
                     execvp(cmds[0][0], cmds[0]);
 
                     perror("execvp failed!\n");
                     exit(EXIT_FAILURE);
-                default: //In the parent process after child process exits
-                    //Parent needs to wait for the termination of the child process
+                default: //Parent process waits for child process to terminate
                     int status;
                     waitpid(pid, &status, 0);
 
@@ -128,13 +127,13 @@ int main(int argc, char* argv[]) {
                         printf("Child %d did not terminate normally\n", pid);
                     }
             }
-        } else if (cmdsCount > 1) { //Handles commands with pipes
-            int pipefd[2]; //Pipe file descriptor
+        } else if (cmdsCount > 1) { //Handle commands with pipe(s)
+            int pipefd[2];
             int oldFileDesc = READ_END; //Tracks the read end of a pipe
 
+            //Iterate through the commands and execute them sequentially in a pipeline
             for (int i = 0; i < cmdsCount; i++) {
-                //Creates a pipe with pipe file descriptor and checks for errors.
-                //Do not create a pipe for last command
+                //Instantiate a pipe with the file descriptor
                 if (i < cmdsCount - 1) {
                     if (pipe(pipefd) < 0) {
                         perror("Failed to create a pipe!\n");
@@ -142,15 +141,19 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
-                //Fork a child process and save its PID
+                //Create a child process and store its PID
                 pid_t pid = fork();
 
-                //Handle different outcomes of the child process creation operation
+                //Handle the values returned by forking a child process
                 switch (pid) {
                     case -1: //Fork failed
                         perror("fork failed!\n");
                         exit(EXIT_FAILURE);
-                    case 0: //In the child process that was successfully created
+                    case 0: //Child process executes the command and redirects
+                            //output for the next child process
+
+                        //Copy the previous child's output to the current pipe's read end,
+                        //which will be used for merging two commands dependent on each other.
                         if (i > 0) {
                             if (dup2(oldFileDesc, READ_END) == -1) {
                                 perror("dup2 for read end failed!\n");
@@ -159,13 +162,17 @@ int main(int argc, char* argv[]) {
                             close(oldFileDesc);
                         }
 
-                        if (cmds[i + 1][0] != NULL) {
+                        //Redirect the pipe's write end to the child process's output.
+                        //Note: Ignores the operation for the last command
+                        //since the write end of the pipe is not needed.
+                        if (i < cmdsCount - 1) {
                             if (dup2(pipefd[WRITE_END], WRITE_END) == -1) {
                                 perror("dup2 for write end failed!\n");
                                 exit(EXIT_FAILURE);
                             }
                         }
 
+                        //Close both ends of the pipe that is no longer needed
                         close(pipefd[READ_END]);
                         close(pipefd[WRITE_END]);
 
@@ -176,13 +183,15 @@ int main(int argc, char* argv[]) {
                     default: //In the parent process after child process exits
                         close(pipefd[WRITE_END]);
 
+                        //Close the previous read end of the pipe that is no longer needed
                         if (oldFileDesc != READ_END) {
                             close(oldFileDesc);
                         }
                         
+                        //Save the read end of the current pipe for the following child process
                         oldFileDesc = pipefd[READ_END];
 
-                        //Parent needs to wait for the termination of the child process
+                        //Parent process waits for child process to terminate
                         int status;
                         waitpid(pid, &status, 0);
 
