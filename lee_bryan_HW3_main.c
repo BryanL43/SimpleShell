@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
         int i = 0, j;
 
         //Iterates through the tokenized user input, splitting by pipes and spaces,
-        //before storing the individual arguments.
+        //before storing the seperated substring.
         char* token = strtok_r(buffer, "|", &saveptr1);
         char* subtoken;
         while (token != NULL) {
