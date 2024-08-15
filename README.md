@@ -1,6 +1,6 @@
 **Assignment 3 - Simple Shell with Pipes**
 
-**`Score: 70/80`**<\br>
+**`Score: 70/80`** </br>
 Note: Code errors are resolved. Implemented the more optimized 2d array pipefd, error handling, buffer handling, & fixed proper dup2 flag
 
 Welcome to your third homework assignment.  
